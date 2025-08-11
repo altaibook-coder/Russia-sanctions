@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Засанкционь Россию — исправленная версия</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{--bg:#071027;--panel:#0b2030;--muted:#9fb4c6;--accent:#7dd3fc}
+  body{font-family:Inter, system-ui, -apple-system, Roboto, Arial; background:var(--bg); color:#e6eef8; margin:0; padding:20px}
+  .wrap{max-width:1100px;margin:0 auto}
+  h1{color:var(--accent);margin:0 0 6px}
+  .lead{color:var(--muted);margin:0 0 16px}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+  button{background:#0ea5a0;border:none;color:#022; padding:10px 14px;border-radius:8px;font-weight:700;cursor:pointer}
+  button.secondary{background:#7c3aed;color:#fff}
+  .panel{background:var(--panel);padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.5)}
+  #question{margin:12px 0;padding:12px;border-radius:8px;background:#052436}
+  .score{display:flex;gap:12px;align-items:center;margin:12px 0;flex-wrap:wrap}
+  .score .card{min-width:220px;padding:10px;border-radius:8px}
+  .big{font-size:18px;font-weight:800}
+  #log{margin-top:12px;max-height:320px;overflow:auto;padding:10px;background:#021726;border-radius:8px}
+  .log-entry{padding:8px;border-bottom:1px dashed rgba(255,255,255,0.03)}
+  .sector{color:#ffd166;font-weight:700}
+  .muted{color:var(--muted)}
+  .meters{height:10px;background:#042233;border-radius:6px;overflow:hidden;margin-top:8px}
+  .meter-bar{height:100%;background:linear-gradient(90deg,#06b6d4,#7dd3fc);transition:width .4s}
+  .charts{display:flex;gap:12px;margin-top:14px;flex-wrap:wrap}
+  canvas{background:#041926;border-radius:8px;padding:8px}
+  footer{margin-top:14px;color:var(--muted);font-size:13px}
+  @media(max-width:900px){.score{flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Засанкционь Россию </h1>
+  <p class="lead">Ты - президент избранной нации. Давай, покажи, какая Америка крутая!</p>
+
+  <div class="controls">
+    <button id="sanction">Ввести санкции</button>
+    <button id="trade">Торговать</button>
+    <button id="skip" class="secondary">Пропустить (только смена компании)</button>
+    <button id="reset">Сброс</button>
+  </div>
+
+  <div id="question" class="panel">
+    <!-- Вопрос будет вставлен сюда -->
+  </div>
+
+  <div class="score">
+    <div class="panel card">
+      <div>Раунд: <span id="roundDisplay">0</span></div>
+      <div class="big">Текущий: <span id="currentName" class="sector">—</span></div>
+      <div class="muted" id="currentCategory"></div>
+    </div>
+
+    <div class="panel card">
+      <div>Счёт США</div>
+      <div class="big" id="usScore">$0 млрд</div>
+      <div class="meters"><div id="usMeter" class="meter-bar" style="width:50%"></div></div>
+      <div class="muted">Положительное = доход США, отрицательное = убыток</div>
+    </div>
+
+    <div class="panel card">
+      <div>Счёт России</div>
+      <div class="big" id="ruScore">$0 млрд</div>
+      <div class="meters"><div id="ruMeter" class="meter-bar" style="width:50%"></div></div>
+      <div class="muted">Россия будет реагировать согласно вашему выбору.</div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div style="flex:1;min-width:320px" class="panel">
+      <canvas id="chart" width="700" height="260"></canvas>
+    </div>
+    <div style="width:320px" class="panel">
+      <div>Краткая статистика</div>
+      <div style="margin-top:8px">Макс США: <span id="usMax">$0 млрд</span></div>
+      <div>Макс Россия: <span id="ruMax">$0 млрд</span></div>
+    </div>
+  </div>
+
+  <div id="log" class="panel"></div>
+
+  <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    <button id="downloadJson">Скачать лог JSON</button>
+    <button id="downloadCsv">Скачать лог CSV</button>
+    <button id="exportPptx" class="secondary">Экспорт PPTX (график)</button>
+  </div>
+
+  <footer>Маке Америка грейт агайн.</footer>
+</div>
+
+<!-- Библиотеки -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.10.0/dist/pptxgen.bundle.js"></script>
+
+<script>
+// --- Список компаний/секторов (с категориями) ---
+const ITEMS = [  { name:'Rosneft', category:'energy' }, { name:'Gazprom', category:'energy' }, { name:'Novatek (LNG)', category:'energy' }, { name:'Lukoil', category:'energy' }, { name:'Tatneft', category:'energy' },
+  { name:'Gazprom Neft', category:'energy' }, { name:'Surgutneftegas', category:'energy' }, { name:'Transneft', category:'energy' }, { name:'Transgaz', category:'energy' }, { name:'RN-Chemicals (нефтехимия)', category:'energy' },
+
+  { name:'Nornickel', category:'metals' }, { name:'Rusal', category:'metals' }, { name:'Polymetal', category:'metals' }, { name:'Mechel', category:'metals' }, { name:'Severstal', category:'metals' },
+  { name:'NLMK', category:'metals' }, { name:'MMK', category:'metals' }, { name:'Alrosa', category:'metals' }, { name:'PhosAgro', category:'fertilizer' }, { name:'Uralkali', category:'fertilizer' },
+
+  { name:'Russian Grain Export (пшеница)', category:'agri' }, { name:'Rusagro', category:'agri' }, { name:'Petersburg Fish Co (рыба)', category:'agri' }, { name:'Sunflower Oil Producers', category:'agri' }, { name:'Dairy Producers (молоко)', category:'agri' },
+  { name:'Meat Processing', category:'agri' }, { name:'Sugar & Confectionery', category:'agri' }, { name:'Timber & Plywood (лес)', category:'agri' }, { name:'Segezha Group', category:'agri' }, { name:'Agroholding', category:'agri' },
+
+  { name:'Sberbank', category:'finance' }, { name:'VTB', category:'finance' }, { name:'Tinkoff', category:'finance' }, { name:'Alfa-Bank', category:'finance' }, { name:'Bank Otkritie', category:'finance' },
+  { name:'Mir (платёжная система)', category:'finance' }, { name:'National Wealth Fund (резервы)', category:'finance' }, { name:'Investment Funds (паевые)', category:'finance' }, { name:'Insurance & Reinsurance', category:'finance' }, { name:'Fintech Startups', category:'finance' },
+
+  { name:'Rostec', category:'defense' }, { name:'UralVagonZavod', category:'defense' }, { name:'Rosoboronexport', category:'defense' }, { name:'Kalashnikov Concern', category:'defense' }, { name:'KTRV (ракетостроение)', category:'defense' },
+  { name:'Oboronprom', category:'defense' }, { name:'Shipborne Systems (военные)', category:'defense' }, { name:'Aircraft Avionics (военные)', category:'defense' }, { name:'Drone Manufacturers', category:'defense' }, { name:'Military Electronics', category:'defense' },
+
+  { name:'United Aircraft Corp (Сухой, МС-21)', category:'aviation' }, { name:'Irkut (МС-21)', category:'aviation' }, { name:'Aviadvigatel', category:'aviation' }, { name:'Aeroflot', category:'aviation' }, { name:'S7 Airlines', category:'aviation' },
+  { name:'UAC MRO (техобслуживание)', category:'aviation' }, { name:'Helicopters (Вертолёты России)', category:'aviation' }, { name:'Civil Avionics', category:'aviation' }, { name:'Regional Airlines', category:'aviation' }, { name:'Aviation Leasing', category:'aviation' },
+
+  { name:'Yandex', category:'it' }, { name:'VK / Mail.ru', category:'it' }, { name:'Kaspersky', category:'it' }, { name:'EPAM Russia (аутсорсинг)', category:'it' }, { name:'IT Outsourcing SME', category:'it' },
+  { name:'Data Centers', category:'it' }, { name:'Cloud Services (локальные)', category:'it' }, { name:'Gaming Studios', category:'it' }, { name:'E-commerce (Wildberries)', category:'it' }, { name:'Online Marketplaces', category:'it' },
+
+  { name:'Rosatom', category:'nuclear' }, { name:'Nuclear Services Export', category:'nuclear' }, { name:'Nuclear Fuel', category:'nuclear' }, { name:'Civil Nuclear Projects', category:'nuclear' }, { name:'Research Reactors', category:'nuclear' },
+
+  { name:'Shipbuilding & Ports', category:'logistics' }, { name:'Novorossiysk Port', category:'logistics' }, { name:'Murmansk Logistics', category:'logistics' }, { name:'Railway (RZD)', category:'logistics' }, { name:'Trucking & Freight', category:'logistics' },
+  { name:'Container Lines', category:'logistics' }, { name:'Cold Chain (сельхоз логистика)', category:'logistics' }, { name:'Oil Tanker Fleet', category:'logistics' }, { name:'Shipping Repair', category:'logistics' }, { name:'Port Services', category:'logistics' },
+
+  { name:'Cement & Construction', category:'construction' }, { name:'Pipes & Steel Fabrication', category:'construction' }, { name:'Housing & Development', category:'construction' }, { name:'Infrastructure Contractors', category:'construction' }, { name:'Mining Equipment', category:'construction' },
+
+  { name:'Retail (X5, Magnit)', category:'retail' }, { name:'Food Processing', category:'retail' }, { name:'Beverages (водка, пиво)', category:'retail' }, { name:'Cosmetics & Apparel', category:'retail' }, { name:'Furniture & Home Goods', category:'retail' },
+
+  { name:'Pharmaceuticals (R-Pharm, Pharmstandard)', category:'pharma' }, { name:'Medical Devices', category:'pharma' }, { name:'Biotech (Biocad)', category:'pharma' }, { name:'Vaccines & Research', category:'pharma' }, { name:'Medical Supplies', category:'pharma' },
+
+  { name:'Chemicals (Sibur)', category:'chemical' }, { name:'Fertilizer Chem', category:'chemical' }, { name:'Plastics & Polymers', category:'chemical' }, { name:'Specialty Chemicals', category:'chemical' }, { name:'Industrial Gases', category:'chemical' },
+
+  { name:'Tourism & Hospitality', category:'services' }, { name:'Education Exports (университеты)', category:'services' }, { name:'Media & Film', category:'services' }, { name:'Sport Events', category:'services' }, { name:'Advertising & PR', category:'services' },
+
+  { name:'Small & Medium Enterprises', category:'sme' }, { name:'Startups & Venture', category:'sme' }, { name:'Local Manufacturing', category:'sme' }, { name:'Franchising', category:'sme' }, { name:'Local Crafts & Exports', category:'sme' }
+];
+
+// --- Настройки сложности / веса ---
+const bigSet = new Set(['Rosneft','Gazprom','Novatek (LNG)','Sberbank','Nornickel','Uralkali / PhosAgro (удобрения)']);
+
+let state = { round:0, current:null, us:0, ru:0, history:[] };
+
+// UI refs
+const el = {
+  question: document.getElementById('question'),
+  currentName: document.getElementById('currentName'),
+  currentCategory: document.getElementById('currentCategory'),
+  roundDisplay: document.getElementById('roundDisplay'),
+  usScore: document.getElementById('usScore'),
+  ruScore: document.getElementById('ruScore'),
+  usMeter: document.getElementById('usMeter'),
+  ruMeter: document.getElementById('ruMeter'),
+  log: document.getElementById('log'),
+  usMax: document.getElementById('usMax'),
+  ruMax: document.getElementById('ruMax')
+};
+
+// Chart
+const ctx = document.getElementById('chart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: { labels: [], datasets: [
+    { label: 'США (накопительно)', data: [], borderColor: '#f97316', tension:0.2, borderWidth:2 },
+    { label: 'Россия (накопительно)', data: [], borderColor: '#10b981', tension:0.2, borderWidth:2 }
+  ] },
+  options: { responsive: true, plugins: { legend:{ labels:{ color:'#cfeefe' } } }, scales:{ x:{ ticks:{ color:'#9fb4c6' } }, y:{ ticks:{ color:'#9fb4c6' } } } }
+});
+
+function rnd(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+function fmt(num){ const n = Math.round(num); const sign = n<0 ? '-' : ''; return `${sign}$${Math.abs(n).toLocaleString()} млрд`; }
+
+// Показывает следующий сектор, не меняя номер раунда (раунд увеличивается при действии)
+function showQuestion(){
+  const item = ITEMS[rnd(0, ITEMS.length-1)];
+  state.current = item;
+  el.currentName.textContent = item.name;
+  el.currentCategory.textContent = `Отрасль: ${item.category}`;
+  el.roundDisplay.textContent = state.round + 1; // показываем будущий раунд
+  el.question.innerHTML = `<div><strong>Раунд ${state.round + 1}:</strong> Что сделать с <span class="sector">${item.name}</span>?</div><div class="muted" style="margin-top:8px">Подсказка: нажмите «Ввести санкции» или «Торговать» — ответ будет адаптирован по отрасли.</div>`;
+}
+
+// Генерация исхода, адаптированная под отрасль
+function computeOutcome(item, action){
+  const isBig = bigSet.has(item.name);
+  const base = isBig ? 1.0 : (0.6 + Math.random()*0.9);
+  let usDelta = 0, ruDelta = 0;
+  let text = '';
+
+  if(action === 'sanction'){
+    // санкция: обычно сильный негатив для США (потери компаний/рыночные эффекты), Россия получает компенсации/альтернативных покупателей
+    let usLoss = rnd(Math.round(base*8), Math.round(base*120));
+    let ruGain = rnd(Math.round(base*4), Math.round(base*100));
+
+    // модификаторы по отрасли
+    switch(item.category){
+      case 'energy':
+        ruGain = Math.round(ruGain * 1.4) + rnd(10,50);
+        usLoss = Math.round(usLoss * 1.15) + rnd(5,40);
+        text = `Россия перенаправила поставки в Азию (Китай, Индия), запустила внутреннее страхование и частичную национализацию активов. Частные страховые и логистические риски взяла на себя государственная инфраструктура.`;
+        break;
+      case 'metals':
+        ruGain = Math.round(ruGain * 1.25) + rnd(5,30);
+        usLoss = Math.round(usLoss * 0.95) + rnd(0,20);
+        text = `Россия нашла новые рынки (Индия, ОАЭ), вывела переработку внутри страны и расширила экспорт в страны Азии.`;
+        break;
+      case 'fertilizer':
+      case 'agri':
+        ruGain = Math.round(ruGain * 1.3) + rnd(8,40);
+        usLoss = Math.round(usLoss * 0.9) + rnd(0,25);
+        text = `Россия ограничила доступ экспортерам и перенастроила флот, часть поставок перенаправлена на рынки Ближнего Востока и Южной Азии.`;
+        break;
+      case 'finance':
+        usLoss = Math.round(usLoss * 1.6) + rnd(10,90);
+        ruGain = Math.round(ruGain * 0.95) + rnd(0,15);
+        text = `Ответ: заморозка активов, ускоренная интеграция с альтернативными платёжными системами (Мир), использование валютных резервов и сделки с партнёрами из Азии.`;
+        break;
+      case 'defense':
+        ruGain = Math.round(ruGain * 1.5) + rnd(10,60);
+        usLoss = Math.round(usLoss * 1.05) + rnd(5,30);
+        text = `Россия нарастила экспорт вооружений в регионы с конфликтами и прокси-партнёрами; часть логистики ушла к третьим сторонам.`;
+        break;
+      case 'aviation':
+        ruGain = Math.round(ruGain * 1.15) + rnd(5,30);
+        usLoss = Math.round(usLoss * 1.05) + rnd(0,25);
+        text = `Российские авиакомпании и производители ускорили импортозамещение, некоторые контракты были перенаправлены в дружественные страны.`;
+        break;
+      case 'it':
+        usLoss = Math.round(usLoss * 0.8) + rnd(0,15);
+        ruGain = Math.round(ruGain * 1.1) + rnd(0,20);
+        text = `Отрезание технологий подтолкнуло локализацию сервисов и рост внутреннего IT-аутсорсинга на ориентированных рынках.`;
+        break;
+      case 'nuclear':
+        ruGain = Math.round(ruGain * 1.2) + rnd(5,30);
+        usLoss = Math.round(usLoss * 1.1) + rnd(5,40);
+        text = `Россия продвинула проекты и сервисы в странах, ищущих альтернативу — контракты перенастроены.`;
+        break;
+      default:
+        text = `Ответные меры: перенастройка цепочек поставок, поиск новых покупателей и частичная национализация активов.`;
+    }
+
+    usDelta = -usLoss; ruDelta = ruGain;
+    const message = `${text} Ваш прямой убыток по итогам года: ${fmt(usDelta)}. Дополнительный доход России: ${fmt(ruDelta)}.`;
+    return { usDelta, ruDelta, message };
+  }
+
+  // trade
+  if(action === 'trade'){
+    let usGain = rnd(Math.round(base*3), Math.round(base*100));
+    let ruGain = rnd(Math.round(base*6), Math.round(base*140));
+
+    switch(item.category){
+      case 'energy':
+        ruGain = Math.round(ruGain * 1.4) + rnd(10,60);
+        usGain = Math.round(usGain * 0.95) + rnd(0,20);
+        text = `Доходы США — от поставок технологий, страховых услуг и сервисного обслуживания; Россия получает выручку от экспорта энергоносителей.`;
+        break;
+      case 'metals':
+        ruGain = Math.round(ruGain * 1.2) + rnd(5,30);
+        usGain = Math.round(usGain * 1.0) + rnd(0,20);
+        text = `Торговля металлами и полуобработанными товарами сохраняет прибыль у обоих: США — сервисы и переработка, Россия — экспорт сырья.`;
+        break;
+      case 'fertilizer':
+      case 'agri':
+        ruGain = Math.round(ruGain * 1.35) + rnd(10,40);
+        usGain = Math.round(usGain * 0.95) + rnd(0,20);
+        text = `Торговля зерном и удобрениями приносит заметную выручку России и определённый доход американским компаниям в логистике и финансах.`;
+        break;
+      case 'finance':
+        usGain = Math.round(usGain * 1.15) + rnd(5,40);
+        ruGain = Math.round(ruGain * 1.05) + rnd(0,20);
+        text = `Финансовое сотрудничество, кредиты и платежные сервисы приносят доход обеим сторонам.`;
+        break;
+      case 'defense':
+        usGain = Math.round(usGain * 0.8) + rnd(0,30); // ограниченная торговля
+        ruGain = Math.round(ruGain * 1.2) + rnd(5,40);
+        text = `Торговля оборонными комплектующими ограничена, но Россия получает доходы от частичных поставок и техобслуживания.`;
+        break;
+      case 'it':
+        usGain = Math.round(usGain * 1.3) + rnd(0,30);
+        ruGain = Math.round(ruGain * 1.05) + rnd(0,20);
+        text = `IT — выгодно для американских поставщиков ПО и услуг; Россия продаёт локализованные решения и услуги аутсорсинга.`;
+        break;
+      default:
+        text = `Торговля приносит доход обеим сторонам в разных пропорциях.`;
+    }
+
+    usDelta = usGain; ruDelta = ruGain;
+    const message = `${text} Ваш итоговый доход за год: ${fmt(usDelta)}. Доход России: ${fmt(ruDelta)}.`;
+    return { usDelta, ruDelta, message };
+  }
+
+  return { usDelta:0, ruDelta:0, message:'Нет данных' };
+}
+
+// Обновление отображения счетов и графика
+function updateUI(){
+  el.usScore.textContent = fmt(state.us);
+  el.ruScore.textContent = fmt(state.ru);
+  const clamp = (v,min,max) => Math.max(min,Math.min(max,v));
+  const usP = ((clamp(state.us,-1000,1000)+1000)/2000)*100;
+  const ruP = ((clamp(state.ru,-1000,1000)+1000)/2000)*100;
+  el.usMeter.style.width = usP + '%'; el.ruMeter.style.width = ruP + '%';
+
+  // chart
+  chart.data.labels = state.history.map(h => `Раунд ${h.round}`);
+  chart.data.datasets[0].data = state.history.map(h => h.usTotal);
+  chart.data.datasets[1].data = state.history.map(h => h.ruTotal);
+  chart.update();
+
+  el.usMax.textContent = state.history.length ? fmt(Math.max(...state.history.map(h=>h.usTotal), state.us)) : fmt(state.us);
+  el.ruMax.textContent = state.history.length ? fmt(Math.max(...state.history.map(h=>h.ruTotal), state.ru)) : fmt(state.ru);
+}
+
+function addLogEntry(html){ const d = document.createElement('div'); d.className='log-entry'; d.innerHTML = html; el.log.prepend(d); }
+
+// Основное действие при нажатии
+function takeAction(action){
+  if(!state.current){ showQuestion(); return; }
+  // Увеличиваем номер раунда последовательно
+  state.round += 1;
+  const item = state.current;
+  const outcome = computeOutcome(item, action);
+
+  state.us = Math.round((state.us + outcome.usDelta) * 100) / 100;
+  state.ru = Math.round((state.ru + outcome.ruDelta) * 100) / 100;
+
+  const entry = {
+    round: state.round,
+    item: item.name,
+    category: item.category,
+    action: action,
+    usDelta: outcome.usDelta,
+    ruDelta: outcome.ruDelta,
+    usTotal: state.us,
+    ruTotal: state.ru,
+    message: outcome.message,
+    timestamp: (new Date()).toISOString()
+  };
+  state.history.push(entry);
+
+  addLogEntry(`<div><strong>Раунд ${entry.round} — ${item.name} (${item.category})</strong></div><div>${outcome.message}</div><div class="muted">Итог: США ${fmt(state.us)}; Россия ${fmt(state.ru)}</div>`);
+
+  updateUI();
+  checkEnd();
+  // показываем следующий вопрос (компании могут идти вперемешку)
+  showQuestion();
+}
+
+// Пропустить: смена компании без увеличения номера раунда и без действия
+function skipQuestion(){ showQuestion(); }
+
+function checkEnd(){ if(state.us <= -1000){ endGame(false, 'Убыток США достиг $1 000 млрд — экономическая война проиграна.'); }
+  else if(state.us >= 1000){ endGame(true, 'Доход США достиг $1 000 млрд — поздравляем, вы выиграли от сотрудничества с Россией!'); } }
+
+function endGame(win, reason){ document.getElementById('sanction').disabled=true; document.getElementById('trade').disabled=true; document.getElementById('skip').disabled=true; addLogEntry(`<div style="padding:8px;background:${win? '#08331a' : '#3a0226'};border-radius:6px;font-weight:700">${win? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ'} — ${reason}</div>`); }
+
+function resetGame(){ state = { round:0, current:null, us:0, ru:0, history:[] }; el.log.innerHTML = ''; el.usScore.textContent = fmt(0); el.ruScore.textContent = fmt(0); el.usMeter.style.width='50%'; el.ruMeter.style.width='50%'; chart.data.labels=[]; chart.data.datasets[0].data=[]; chart.data.datasets[1].data=[]; chart.update(); document.getElementById('sanction').disabled=false; document.getElementById('trade').disabled=false; document.getElementById('skip').disabled=false; showQuestion(); }
+
+// Экспорт JSON / CSV
+function downloadJSON(){ const data = { generatedAt: (new Date()).toISOString(), history: state.history, final: { us: state.us, ru: state.ru } }; const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' }); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='russia-sanctions-log.json'; a.click(); URL.revokeObjectURL(url); }
+
+function escapeCsv(val){ if(val === null || val === undefined) return ''; const s = String(val).replace(/"/g,'""'); return '"' + s + '"'; }
+function downloadCSV(){ if(state.history.length===0){ alert('Лог пуст — нет данных для CSV.'); return; } const headers=['round','timestamp','item','category','action','usDelta','ruDelta','usTotal','ruTotal','message']; const rows=[headers.join(',')]; state.history.forEach(r=>{ const row = [r.round, r.timestamp, escapeCsv(r.item), r.category, r.action, r.usDelta, r.ruDelta, r.usTotal, r.ruTotal, escapeCsv(r.message)].join(','); rows.push(row); }); const csv = rows.join('\n'); const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='russia-sanctions-log.csv'; a.click(); URL.revokeObjectURL(url); }
+
+// Экспорт PPTX: вставляем картинку графика + краткие итоги
+async function exportPPTX(){ try{ const img = chart.toBase64Image(); const pptx = new PptxGenJS(); const slide = pptx.addSlide(); slide.addText('Russia Sanctions — Game Summary', { x:0.5, y:0.3, fontSize:18, bold:true }); slide.addImage({ data:img, x:0.5, y:1.0, w:9.0, h:4.5 }); slide.addText([ { text:'Final USA: ', options:{bold:true} }, { text: fmt(state.us) + '\n' }, { text:'Final Russia: ', options:{bold:true} }, { text: fmt(state.ru) } ], { x:0.5, y:5.7, fontSize:12 }); await pptx.writeFile({ fileName:'russia-sanctions-summary.pptx' }); } catch(e){ console.error(e); alert('Ошибка при экспорте PPTX: '+e.message); } }
+
+// Привязка кнопок
+document.getElementById('sanction').addEventListener('click', ()=> takeAction('sanction'));
+document.getElementById('trade').addEventListener('click', ()=> takeAction('trade'));
+document.getElementById('skip').addEventListener('click', skipQuestion);
+document.getElementById('reset').addEventListener('click', resetGame);
+document.getElementById('downloadJson').addEventListener('click', downloadJSON);
+document.getElementById('downloadCsv').addEventListener('click', downloadCSV);
+document.getElementById('exportPptx').addEventListener('click', exportPPTX);
+
+// старт
+resetGame();
+</script>
+</body>
+</html>
